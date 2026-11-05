@@ -50,28 +50,133 @@
                 object-position: center;
             }
         }
+
+        /* Tap-to-play overlay: desktop only */
+        .play-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            background: rgba(104, 29, 44, 0.28);
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .play-overlay__button {
+            width: 92px;
+            height: 92px;
+            border: 0;
+            border-radius: 50%;
+            background: #f6efe3;
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .play-overlay__button::after {
+            content: "";
+            display: block;
+            margin-left: 7px;
+            border-style: solid;
+            border-width: 17px 0 17px 28px;
+            border-color: transparent transparent transparent #681d2c;
+        }
+
+        .play-overlay:hover .play-overlay__button {
+            transform: scale(1.06);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+        }
+
+        .play-overlay__text {
+            color: #f6efe3;
+            font-family: "Georgia", "Times New Roman", serif;
+            font-size: 15px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+        }
+
+        @media (min-width: 761px) {
+            .video-container:not(.is-playing) .play-overlay {
+                display: flex;
+            }
+        }
     </style>
 </head>
 
 <body>
 
-    <div class="video-container">
-        <video id="heroVideo" autoplay playsinline preload="auto"></video>
+    <div class="video-container" id="videoContainer">
+        <video id="heroVideo" playsinline preload="auto"></video>
+
+        <div class="play-overlay" id="playOverlay" role="button" tabindex="0" aria-label="Tap to play video">
+            <span class="play-overlay__button" aria-hidden="true"></span>
+            <span class="play-overlay__text">Tap to play</span>
+        </div>
     </div>
 
     <script>
         const video = document.getElementById("heroVideo");
+        const container = document.getElementById("videoContainer");
+        const overlay = document.getElementById("playOverlay");
+
+        const desktopQuery = window.matchMedia("(min-width: 761px)");
+        let playbackStarted = false;
 
         function changeVideo() {
-            const videoFile = window.innerWidth >= 761
+            const videoFile = desktopQuery.matches
                 ? "assets/grand-opening-desktop.mp4"
                 : "assets/grand-opening-mobile.mp4";
 
-            if (video.dataset.current !== videoFile) {
-                video.dataset.current = videoFile;
-                video.src = videoFile;
-                video.load();
+            if (video.dataset.current === videoFile) {
+                return;
+            }
+
+            const wasPlaying = !video.paused && !video.ended;
+            video.dataset.current = videoFile;
+            video.src = videoFile;
+            video.load();
+
+            // On desktop the video waits for a tap/click.
+            // Mobile keeps playing automatically as before.
+            if (desktopQuery.matches && !playbackStarted && !wasPlaying) {
+                container.classList.remove("is-playing");
+                return;
+            }
+
+            video.play().catch(() => { });
+        }
+
+        function startPlayback() {
+            if (playbackStarted && !video.paused) {
+                return;
+            }
+
+            playbackStarted = true;
+            container.classList.add("is-playing");
+
+            video.muted = false;
+            video.volume = 1;
+            video.play().catch(() => {
+                // If the browser blocks sound, start muted and let the next tap unmute.
+                video.muted = true;
                 video.play().catch(() => { });
+            });
+
+            document.removeEventListener("click", startPlayback);
+            document.removeEventListener("touchstart", startPlayback);
+            document.removeEventListener("keydown", onKeydown);
+        }
+
+        function onKeydown(event) {
+            if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+                event.preventDefault();
+                startPlayback();
             }
         }
 
@@ -79,18 +184,13 @@
 
         window.addEventListener("resize", changeVideo);
 
-        // Enable audio after visitor interaction
-        function enableAudio() {
-            video.muted = false;
-            video.volume = 1;
-            video.play().catch(() => { });
+        // Click / tap / keyboard anywhere on the screen starts the video
+        document.addEventListener("click", startPlayback);
+        document.addEventListener("touchstart", startPlayback, { passive: true });
+        document.addEventListener("keydown", onKeydown);
 
-            document.removeEventListener("click", enableAudio);
-            document.removeEventListener("touchstart", enableAudio);
-        }
-
-        document.addEventListener("click", enableAudio);
-        document.addEventListener("touchstart", enableAudio);
+        // Clicking the overlay itself also works
+        overlay.addEventListener("click", startPlayback);
     </script>
 
 </body>
