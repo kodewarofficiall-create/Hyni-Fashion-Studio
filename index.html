@@ -34,6 +34,73 @@
             background: #681d2c;
         }
 
+        .poster-sequence {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            padding: 5vh 5vw;
+            background: #681d2c;
+        }
+
+        .poster-sequence[hidden],
+        .poster-image[hidden],
+        .poster-error[hidden] {
+            display: none;
+        }
+
+        .poster-image {
+            display: block;
+            max-width: 100%;
+            max-height: 90vh;
+            max-height: 90dvh;
+            object-fit: contain;
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+        }
+
+        .poster-image.poster-pop {
+            animation: poster-pop 600ms ease-out both;
+        }
+
+        .poster-image.poster-slide-left {
+            animation: poster-slide-left 700ms ease-in both;
+        }
+
+        .poster-error {
+            color: #fff;
+            font: 16px/1.5 sans-serif;
+            text-align: center;
+        }
+
+        @keyframes poster-pop {
+            from {
+                opacity: 0;
+                transform: scale(0.75);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes poster-slide-left {
+            to {
+                opacity: 0;
+                transform: translateX(-120vw);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .poster-image.poster-pop,
+            .poster-image.poster-slide-left {
+                animation-duration: 1ms;
+            }
+        }
+
         video {
             width: 100%;
             height: 100%;
@@ -56,16 +123,35 @@
 <body>
 
     <div class="video-container" id="videoContainer">
-        <video id="heroVideo" playsinline preload="auto"></video>
+        <video id="heroVideo" playsinline webkit-playsinline preload="auto"></video>
+    </div>
+
+    <div class="poster-sequence" id="posterSequence" aria-live="polite" hidden>
+        <img class="poster-image" id="posterImage" alt="" hidden>
+        <p class="poster-error" id="posterError" role="alert" hidden></p>
     </div>
 
     <script>
         const video = document.getElementById("heroVideo");
+        const posterSequence = document.getElementById("posterSequence");
+        const posterImage = document.getElementById("posterImage");
+        const posterError = document.getElementById("posterError");
+        const posterFiles = [
+            "assets/Poster1.jpeg",
+            "assets/Poster2.jpeg",
+            "assets/Poster3.jpeg",
+            "assets/Poster4.jpeg"
+        ];
 
         const desktopQuery = window.matchMedia("(min-width: 761px)");
-        let playbackStarted = false;
+        let posterSequenceStarted = false;
+        let hasPlayed = false;
 
         function changeVideo() {
+            if (posterSequenceStarted) {
+                return;
+            }
+
             const videoFile = desktopQuery.matches
                 ? "assets/grand-opening-desktop.mp4"
                 : "assets/grand-opening-mobile.mp4";
@@ -74,55 +160,82 @@
                 return;
             }
 
-            const wasPlaying = !video.paused && !video.ended;
             video.dataset.current = videoFile;
             video.src = videoFile;
             video.load();
-
-            // On desktop the video waits for a tap/click.
-            // Mobile keeps playing automatically as before.
-            if (desktopQuery.matches && !playbackStarted && !wasPlaying) {
-                return;
-            }
-
-            video.play().catch(() => { });
+            hasPlayed = false;
         }
 
-        function startPlayback() {
-            if (playbackStarted && !video.paused) {
+        video.addEventListener("click", () => {
+            if (!video.paused) {
                 return;
             }
-
-            playbackStarted = true;
 
             video.muted = false;
             video.volume = 1;
-            video.play().catch(() => {
-                // If the browser blocks sound, start muted and let the next tap unmute.
-                video.muted = true;
-                video.play().catch(() => { });
-            });
+            const playPromise = video.play();
+            if (playPromise && typeof playPromise.catch === "function") {
+                playPromise.catch((error) => {
+                    console.error("Unable to play video with sound:", error);
+                });
+            }
+        });
 
-            document.removeEventListener("click", startPlayback);
-            document.removeEventListener("touchstart", startPlayback);
-            document.removeEventListener("keydown", onKeydown);
+        function showPoster(index) {
+            posterImage.hidden = true;
+            posterError.hidden = true;
+            posterSequence.hidden = false;
+            posterImage.onload = () => {
+                posterImage.hidden = false;
+                posterImage.alt = `Poster ${index + 1}`;
+                posterImage.className = "poster-image poster-pop";
+                if (index < posterFiles.length - 1) {
+                    window.setTimeout(() => {
+                        if (!posterImage.hidden) {
+                            posterImage.className = "poster-image poster-slide-left";
+                        }
+                    }, 3000);
+                }
+            };
+            posterImage.onerror = () => {
+                posterImage.hidden = true;
+                posterError.textContent = `Unable to load ${posterFiles[index]}. Check that the file exists in the assets folder.`;
+                posterError.hidden = false;
+            };
+            posterImage.src = posterFiles[index];
         }
 
-        function onKeydown(event) {
-            if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
-                event.preventDefault();
-                startPlayback();
+        function advancePoster(event) {
+            if (!event || !posterImage.classList.contains("poster-slide-left")) {
+                return;
+            }
+
+            const currentIndex = posterFiles.indexOf(
+                posterImage.getAttribute("src")
+            );
+            if (currentIndex >= 0 && currentIndex < posterFiles.length - 1) {
+                showPoster(currentIndex + 1);
             }
         }
+
+        posterImage.addEventListener("animationend", advancePoster);
+
+        // Only run the poster sequence after the video has genuinely played through.
+        video.addEventListener("playing", () => {
+            hasPlayed = true;
+        });
+
+        video.addEventListener("ended", () => {
+            if (!hasPlayed || posterSequenceStarted) {
+                return;
+            }
+            posterSequenceStarted = true;
+            showPoster(0);
+        });
 
         changeVideo();
 
         window.addEventListener("resize", changeVideo);
-
-        // Click / tap / keyboard anywhere on the screen starts the video
-        document.addEventListener("click", startPlayback);
-        document.addEventListener("touchstart", startPlayback, { passive: true });
-        document.addEventListener("keydown", onKeydown);
     </script>
 
 </body>
